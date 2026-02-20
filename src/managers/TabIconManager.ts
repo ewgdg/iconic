@@ -8,10 +8,17 @@ import IconPicker from 'src/dialogs/IconPicker';
  * Handles icons in workspace tab headers.
  */
 export default class TabIconManager extends IconManager {
+	private refreshRafId: number | null = null;
+	private isLayoutReady = false;
+
 	constructor(plugin: IconicPlugin) {
 		super(plugin);
-		this.plugin.registerEvent(this.app.workspace.on('layout-change', () => this.refreshIcons()));
-		this.plugin.registerEvent(this.app.workspace.on('active-leaf-change', () => this.refreshIcons()));
+		this.plugin.registerEvent(this.app.workspace.on('layout-change', () => this.scheduleRefresh()));
+		this.plugin.registerEvent(this.app.workspace.on('active-leaf-change', () => this.scheduleRefresh()));
+		this.app.workspace.onLayoutReady(() => {
+			this.isLayoutReady = true;
+			this.scheduleRefresh();
+		});
 
 		// Refresh icons in tab selector dropdown ▼
 		const tabListEl = activeDocument.body.find('.mod-root .workspace-tab-header-tab-list > .clickable-icon');
@@ -33,8 +40,39 @@ export default class TabIconManager extends IconManager {
 			});
 		});
 
-		this.refreshIcons();
 	}
+
+	private scheduleRefresh(): void {
+		if (!this.isLayoutReady) {
+			return;
+		}
+		if (this.refreshRafId !== null) {
+			return;
+		}
+		this.refreshRafId = window.requestAnimationFrame(() => {
+			this.refreshRafId = null;
+			this.refreshIcons();
+		});
+	}
+
+	private cancelScheduledRefresh(): void {
+		if (this.refreshRafId !== null) {
+			window.cancelAnimationFrame(this.refreshRafId);
+			this.refreshRafId = null;
+		}
+	}
+
+	private isMutationRelatedToIcon(mutation: MutationRecord, iconEl: HTMLElement): boolean {
+		if (iconEl.contains(mutation.target as Node)) return true;
+		for (const node of mutation.addedNodes) {
+			if (node === iconEl) return true;
+		}
+		for (const node of mutation.removedNodes) {
+			if (node === iconEl) return true;
+		}
+		return false;
+	}
+
 
 	/**
 	 * @override
@@ -93,21 +131,10 @@ export default class TabIconManager extends IconManager {
 				this.setEventListener(tabEl, 'contextmenu', () => this.onContextMenu(tab.id, tab.category));
 			}
 
-			// Refresh when tab is pinned/unpinned
-			const statusEl = tabEl.find(':scope > .workspace-tab-header-inner > .workspace-tab-header-status-container');
-			this.setMutationObserver(statusEl, { childList: true }, mutation => {
-				for (const addedNode of mutation.addedNodes) {
-					if (addedNode instanceof HTMLElement && addedNode.hasClass('mod-pinned')) {
-						this.refreshIcons();
-						return;
-					}
-				}
-				for (const removedNode of mutation.removedNodes) {
-					if (removedNode instanceof HTMLElement && removedNode.hasClass('mod-pinned')) {
-						this.refreshIcons();
-						return;
-					}
-				}
+			// Watch each tab header for icon swaps.
+			this.setMutationObserver(tabEl, { childList: true, subtree: true }, mutation => {
+				if (!this.isMutationRelatedToIcon(mutation, iconEl)) return;
+				this.scheduleRefresh();
 			});
 
 			// Update mobile sidebars
@@ -242,6 +269,7 @@ export default class TabIconManager extends IconManager {
 	 * @override
 	 */
 	unload(): void {
+		this.cancelScheduledRefresh();
 		this.refreshIcons(true);
 		super.unload();
 	}
