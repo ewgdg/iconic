@@ -9,16 +9,12 @@ import IconPicker from 'src/dialogs/IconPicker';
  */
 export default class TabIconManager extends IconManager {
 	private refreshRafId: number | null = null;
-	private isLayoutReady = false;
 
 	constructor(plugin: IconicPlugin) {
 		super(plugin);
 		this.plugin.registerEvent(this.app.workspace.on('layout-change', () => this.scheduleRefresh()));
 		this.plugin.registerEvent(this.app.workspace.on('active-leaf-change', () => this.scheduleRefresh()));
-		this.app.workspace.onLayoutReady(() => {
-			this.isLayoutReady = true;
-			this.scheduleRefresh();
-		});
+		this.app.workspace.onLayoutReady(() => this.scheduleRefresh());
 
 		// Refresh icons in tab selector dropdown ▼
 		const tabListEl = activeDocument.body.find('.mod-root .workspace-tab-header-tab-list > .clickable-icon');
@@ -43,7 +39,7 @@ export default class TabIconManager extends IconManager {
 	}
 
 	private scheduleRefresh(): void {
-		if (!this.isLayoutReady) {
+		if (!this.app.workspace.layoutReady) {
 			return;
 		}
 		if (this.refreshRafId !== null) {
